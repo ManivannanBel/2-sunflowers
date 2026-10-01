@@ -532,8 +532,17 @@ const tick = () => {
     sunflower1.group.rotation.z = Math.sin(elapsedTime * 0.5) * 0.05
     sunflower2.group.rotation.z = Math.sin(elapsedTime * 0.5 + 1) * 0.05
 
-    // Ease the day/night progress towards its target
-    dayNight.progress += (dayNight.target - dayNight.progress) * Math.min(deltaTime * 1.5, 1)
+    // Ease the day/night progress towards its target at a constant speed, so
+    // the sun moves across the sky at the same rate during sunset as it does
+    // during sunrise (an exponential ease here would make the *visible*
+    // portion of the sun's motion appear to rush by faster in one direction,
+    // since it fades out/in at a fixed progress threshold below).
+    const dayNightSpeed = 0.4 // progress units per second
+    if (dayNight.progress < dayNight.target) {
+        dayNight.progress = Math.min(dayNight.progress + dayNightSpeed * deltaTime, dayNight.target)
+    } else if (dayNight.progress > dayNight.target) {
+        dayNight.progress = Math.max(dayNight.progress - dayNightSpeed * deltaTime, dayNight.target)
+    }
     const progress = dayNight.progress
 
     // Move the sun along its arc (day position -> horizon -> night position)
