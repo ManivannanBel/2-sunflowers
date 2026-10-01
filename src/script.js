@@ -497,6 +497,7 @@ scene.add(camera)
 const controls = new OrbitControls(camera, canvas)
 controls.target.copy(cameraTarget)
 controls.enableDamping = true
+controls.maxDistance = 10
 
 // TEMP: logs the live camera position while you orbit/pan/zoom, so you can
 // find a new spot and copy its values into `cameraPosition` above.
