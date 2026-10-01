@@ -1,0 +1,43 @@
+* {
+    margin: 0;
+    padding: 0;
+}
+
+html,
+body {
+    overflow: hidden;
+}
+
+.webgl {
+    position: fixed;
+    top: 0;
+    left: 0;
+    outline: none;
+}
+
+.day-night-toggle {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    z-index: 10;
+    padding: 10px 18px;
+    font-size: 15px;
+    font-family: sans-serif;
+    font-weight: 600;
+    color: #2b2b2b;
+    background: #ffffff;
+    border: none;
+    border-radius: 999px;
+    cursor: pointer;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+    transition: transform 0.15s ease, background 0.3s ease;
+}
+
+.day-night-toggle:hover {
+    transform: scale(1.05);
+}
+
+.day-night-toggle:active {
+    transform: scale(0.97);
+}
+
