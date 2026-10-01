@@ -44,7 +44,7 @@ groundGeometry.computeVertexNormals()
 
 const ground = new THREE.Mesh(
     groundGeometry,
-    new THREE.MeshStandardMaterial({ color: 0x5bb648 })
+    new THREE.MeshStandardMaterial({ color: 0x22a829, roughness: 0.9 })
 )
 ground.rotation.x = -Math.PI * 0.5
 ground.receiveShadow = true
@@ -351,6 +351,58 @@ const stars = new THREE.Points(starGeometry, starMaterial)
 scene.add(stars)
 
 /**
+ * Daytime clouds
+ *
+ * `CLOUD_COUNT` is simply how many cloud sprites drift across the sky -
+ * tweak this one number for a sparser or cloudier sky. They fade out as
+ * night falls, alongside the sun.
+ */
+const CLOUD_COUNT = 14
+
+// A soft puffy cloud blob, built from a handful of overlapping radial
+// gradients on a single canvas texture
+const cloudCanvas = document.createElement('canvas')
+cloudCanvas.width = 256
+cloudCanvas.height = 160
+const cloudContext = cloudCanvas.getContext('2d')
+const cloudPuffs = [
+    { x: 128, y: 95, r: 70 },
+    { x: 75, y: 100, r: 50 },
+    { x: 185, y: 100, r: 55 },
+    { x: 100, y: 60, r: 45 },
+    { x: 165, y: 65, r: 42 }
+]
+for (const puff of cloudPuffs) {
+    const puffGradient = cloudContext.createRadialGradient(puff.x, puff.y, 0, puff.x, puff.y, puff.r)
+    puffGradient.addColorStop(0, 'rgba(255, 255, 255, 0.9)')
+    puffGradient.addColorStop(1, 'rgba(255, 255, 255, 0)')
+    cloudContext.fillStyle = puffGradient
+    cloudContext.fillRect(0, 0, 256, 160)
+}
+const cloudTexture = new THREE.CanvasTexture(cloudCanvas)
+
+const cloudAreaRadius = 35
+const clouds = []
+for (let i = 0; i < CLOUD_COUNT; i++) {
+    const cloud = new THREE.Sprite(new THREE.SpriteMaterial({
+        map: cloudTexture,
+        transparent: true,
+        depthWrite: false
+    }))
+
+    const angle = Math.random() * Math.PI * 2
+    const radius = THREE.MathUtils.lerp(5, cloudAreaRadius, Math.random())
+    const scale = THREE.MathUtils.lerp(6, 14, Math.random())
+
+    cloud.position.set(Math.cos(angle) * radius, THREE.MathUtils.lerp(9, 10, Math.random()), Math.sin(angle) * radius)
+    cloud.scale.set(scale, scale * 0.6, 1)
+    cloud.userData.driftSpeed = THREE.MathUtils.lerp(0.6, 1.4, Math.random()) * (Math.random() < 0.5 ? 1 : -1)
+
+    clouds.push(cloud)
+    scene.add(cloud)
+}
+
+/**
  * Day / night cycle
  *
  * The sun swings along a half-circle arc (through the axis perpendicular to
@@ -395,7 +447,9 @@ toggleButton.addEventListener('click', () => {
 // Rotates `object` purely around the vertical stem axis (Y) so it smoothly
 // eases towards yawing at `targetWorldPosition` (offset by `angleOffset`
 // radians, if given), without any pitch or roll tilt. Any existing X/Z
-// rotation (e.g. a wind sway) is left untouched.
+// rotation (e.g. a wind sway) is left untouched. Returns how far off (in
+// radians) the rotation still is from its target, so callers can tell once
+// it's actually finished turning.
 const turnSpeed = 1.5 // how quickly the yaw eases towards its target, per second
 const faceTowards = (object, targetWorldPosition, deltaTime, angleOffset = 0) => {
     const localTarget = object.parent.worldToLocal(targetWorldPosition.clone())
@@ -410,6 +464,8 @@ const faceTowards = (object, targetWorldPosition, deltaTime, angleOffset = 0) =>
     if (angleDiff < -Math.PI) angleDiff += twoPi
 
     object.rotation.y += angleDiff * Math.min(deltaTime * turnSpeed, 1)
+
+    return angleDiff
 }
 
 /**
@@ -465,6 +521,8 @@ renderer.shadowMap.enabled = true
 const clock = new THREE.Clock()
 
 let elapsedTime = 0
+let facingEachOtherSettled = false // true once both sunflowers finish turning to face each other
+let glowAmount = 0 // eased petal/head glow intensity
 
 const tick = () => {
     const deltaTime = clock.getDelta()
@@ -496,6 +554,17 @@ const tick = () => {
     // Fade the stars in as night falls
     starMaterial.opacity = THREE.MathUtils.smoothstep(progress, 0.4, 1)
 
+    // Drift the clouds across the sky and fade them out as night falls,
+    // alongside the sun
+    const cloudOpacity = THREE.MathUtils.clamp(1 - progress * 1.3, 0, 1)
+    const cloudBound = cloudAreaRadius + 5
+    for (const cloud of clouds) {
+        cloud.material.opacity = cloudOpacity
+        cloud.position.x += cloud.userData.driftSpeed * deltaTime
+        if (cloud.position.x > cloudBound) cloud.position.x = -cloudBound
+        if (cloud.position.x < -cloudBound) cloud.position.x = cloudBound
+    }
+
     // Sunflowers only re-target once the day/night transition has settled at
     // an extreme: they track the sun once it has fully risen, track each
     // other once it has fully set, and simply hold whatever direction they
@@ -509,13 +578,19 @@ const tick = () => {
         const head2WorldPosition = sunflower2.head.getWorldPosition(new THREE.Vector3())
         // Face each other, but shyly offset by 30 degrees rather than dead-on
         const nightAngleOffset = THREE.MathUtils.degToRad(30)
-        faceTowards(sunflower1.group, head2WorldPosition, deltaTime, nightAngleOffset)
-        faceTowards(sunflower2.group, head1WorldPosition, deltaTime, -nightAngleOffset)
+        const angleDiff1 = faceTowards(sunflower1.group, head2WorldPosition, deltaTime, nightAngleOffset)
+        const angleDiff2 = faceTowards(sunflower2.group, head1WorldPosition, deltaTime, -nightAngleOffset)
+
+        const rotationSettledThreshold = THREE.MathUtils.degToRad(1)
+        facingEachOtherSettled = Math.abs(angleDiff1) < rotationSettledThreshold && Math.abs(angleDiff2) < rotationSettledThreshold
+    } else {
+        facingEachOtherSettled = false
     }
 
-    // Soft glow on the petals and flower centers as night fully settles in
-    // and the sunflowers turn to face each other
-    const glowAmount = THREE.MathUtils.smoothstep(progress, 0.7, 1) * 0.8
+    // Soft glow on the petals and flower centers, but only once the
+    // sunflowers have actually finished turning to face each other
+    const glowTarget = facingEachOtherSettled ? 0.8 : 0
+    glowAmount += (glowTarget - glowAmount) * Math.min(deltaTime * 2, 1)
     petalMaterial.emissiveIntensity = glowAmount
     petalTipMaterial.emissiveIntensity = glowAmount
     centerMaterial.emissiveIntensity = glowAmount
